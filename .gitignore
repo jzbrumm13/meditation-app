@@ -39,3 +39,14 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Claude Code local workspace configs (per-machine, not part of source)
+.claude/
+
+# Archive of the abandoned Expo-v1 experiments (kept locally for reference only)
+.old-expo/
+
+# Old/experimental artifacts not part of the shipping app
+showcase.html
+nondual-10min-v1.mp3
+*.zip

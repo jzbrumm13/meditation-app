@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Candle Timer</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}canvas{touch-action:none;cursor:grab;max-width:100vw;max-height:100vh}</style>
+</head><body>
+<canvas id="c" width="500" height="700"></canvas>
+<script>
+const C=document.getElementById('c'),X=C.getContext('2d'),W=500,H=700;
+const CX=W/2,BY=520,MH=250,CWD=40,WKH=14;
+var cH=0,aH=0,mode='fill',burning=false,lit=false,bStart=0,bDur=0,startH=0,dragging=false,time=0;
+var extinguishing=false,extT=0,flickDie=1,puffs=[],smokes=[];
+var emberGlow=0;
+var moonFade=1;
+
+// Only allow specific meditation lengths: 5, 10, 15, 20, 30, 45, 60 minutes.
+// MH=250px maps linearly to 60 minutes (see bDur calc on release).
+// SNAP_HEIGHTS are the candle heights (in px) that correspond to each length.
+const SNAP_HEIGHTS=[250*5/60, 250*10/60, 250*15/60, 250*20/60, 250*30/60, 250*45/60, 250*60/60];
+const LIGHT_THRESHOLD=SNAP_HEIGHTS[0]*0.6; // below ~60% of 5-min mark = don't light
+function snapCandle(h){
+  if(h<LIGHT_THRESHOLD)return 0;
+  return SNAP_HEIGHTS.reduce((best,s)=>Math.abs(s-h)<Math.abs(best-h)?s:best);
+}
+
+const LIGHT_RADIUS=180;
+const FALLOFF_POWER=2.2;
+const SMOKE_DURATION=10;
+
+const MOON_X=-60;
+const MOON_Y=-40;
+// MOON_RADIUS=1 effectively disables the moonlight wash on the canvas —
+// the moon button itself (rendered in RN) is the only "moon" in the UI.
+// The candle holder still gets its localised AMBIENT light below.
+const MOON_RADIUS=1;
+const AMBIENT_X=CX;
+const AMBIENT_Y=BY;
+const AMBIENT_RADIUS=200;
+
+const scene=document.createElement('canvas');
+scene.width=W;scene.height=H;
+const SX=scene.getContext('2d');
+
+const books=[];
+
+function drawSceneToBuffer(ctx){
+  let g=ctx.createLinearGradient(0,0,0,BY+55);
+  g.addColorStop(0,'#1F1A14');
+  g.addColorStop(0.5,'#2A2218');
+  g.addColorStop(1,'#241E16');
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,W,BY+55);
+
+  let deskTop=BY+55;
+  let dg=ctx.createLinearGradient(0,deskTop,0,H);
+  dg.addColorStop(0,'#3A2414');
+  dg.addColorStop(0.3,'#2E1C0E');
+  dg.addColorStop(1,'#1A0F08');
+  ctx.fillStyle=dg;
+  ctx.fillRect(0,deskTop,W,H-deskTop);
+  ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(0,deskTop,W,2);
+  ctx.fillStyle='rgba(100,70,40,0.2)';ctx.fillRect(0,deskTop+2,W,1);
+
+  drawHolder(ctx);
+  drawTaper(ctx,cTop(),aH);
+  drawCollar(ctx);
+  drawWick(ctx);
+}
+
+function cTop(){return BY-aH}
+
+function brassGrad(ctx,x1,x2){
+  let g=ctx.createLinearGradient(x1,0,x2,0);
+  g.addColorStop(0,'#5A3E14');g.addColorStop(0.15,'#9B7428');g.addColorStop(0.35,'#CCA44C');g.addColorStop(0.5,'#E8C868');g.addColorStop(0.65,'#CCA44C');g.addColorStop(0.85,'#9B7428');g.addColorStop(1,'#5A3E14');
+  return g;
+}
+
+function drawHolder(ctx){
+  let sc='#7A5A18';
+  ctx.lineWidth=2;ctx.lineJoin='round';ctx.lineCap='round';
+  let dY=BY+4,cupBot=dY-1,cupTop=dY-20,cupBW=CWD/2+4,cupTW=CWD/2-4;
+  ctx.fillStyle=brassGrad(ctx,CX-cupBW,CX+cupBW);ctx.strokeStyle=sc;
+  ctx.beginPath();ctx.moveTo(CX-cupTW,cupTop);
+  ctx.bezierCurveTo(CX-cupTW-2,cupTop+(cupBot-cupTop)*.5,CX-cupBW,cupBot-4,CX-cupBW,cupBot);
+  ctx.lineTo(CX+cupBW,cupBot);
+  ctx.bezierCurveTo(CX+cupBW,cupBot-4,CX+cupTW+2,cupTop+(cupBot-cupTop)*.5,CX+cupTW,cupTop);
+  ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.ellipse(CX,cupTop,cupTW,3,0,0,Math.PI*2);
+  ctx.fillStyle=brassGrad(ctx,CX-cupTW,CX+cupTW);ctx.fill();ctx.stroke();
+
+  ctx.fillStyle=brassGrad(ctx,CX-62,CX+62);ctx.strokeStyle=sc;
+  ctx.beginPath();ctx.ellipse(CX,dY+2,62,13,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+  ctx.fillStyle=brassGrad(ctx,CX-50,CX+50);
+  ctx.beginPath();ctx.ellipse(CX,dY+2,50,9.5,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+  let lipY=dY+11;
+  ctx.fillStyle=brassGrad(ctx,CX-62,CX+62);
+  ctx.beginPath();ctx.ellipse(CX,lipY,62,5,0,0,Math.PI);ctx.fill();
+  ctx.beginPath();ctx.ellipse(CX,lipY,62,5,0,0,Math.PI);ctx.strokeStyle=sc;ctx.stroke();
+  let sTop=lipY+2,sBot=sTop+26;
+  ctx.fillStyle=brassGrad(ctx,CX-9,CX+9);ctx.strokeStyle=sc;
+  ctx.beginPath();ctx.moveTo(CX-9,sTop);ctx.bezierCurveTo(CX-12,sTop+8,CX-7,sBot-8,CX-13,sBot);
+  ctx.lineTo(CX+13,sBot);ctx.bezierCurveTo(CX+7,sBot-8,CX+12,sTop+8,CX+9,sTop);
+  ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle=brassGrad(ctx,CX-14,CX+14);
+  ctx.beginPath();ctx.ellipse(CX,sTop+13,14,4,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+  ctx.fillStyle=brassGrad(ctx,CX-30,CX+30);
+  ctx.beginPath();ctx.ellipse(CX,sBot+2,30,7,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+  ctx.fillStyle=brassGrad(ctx,CX-42,CX+42);
+  ctx.beginPath();ctx.moveTo(CX-30,sBot+2);ctx.bezierCurveTo(CX-36,sBot+6,CX-42,sBot+8,CX-42,sBot+12);
+  ctx.lineTo(CX+42,sBot+12);ctx.bezierCurveTo(CX+42,sBot+8,CX+36,sBot+6,CX+30,sBot+2);
+  ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.ellipse(CX,sBot+12,42,5,0,0,Math.PI);ctx.fill();
+  ctx.beginPath();ctx.ellipse(CX,sBot+12,42,5,0,0,Math.PI*2);ctx.stroke();
+  let hx=CX+cupBW+2,hy=BY-6;
+  ctx.lineWidth=3.5;ctx.strokeStyle='#A07828';
+  ctx.beginPath();ctx.moveTo(hx,hy);
+  ctx.bezierCurveTo(hx+26,hy-6,hx+40,hy-42,hx+32,hy-66);
+  ctx.bezierCurveTo(hx+24,hy-84,hx+6,hy-72,hx+9,hy-52);
+  ctx.bezierCurveTo(hx+12,hy-38,hx+24,hy-35,hx+22,hy-24);
+  ctx.stroke();
+  ctx.beginPath();ctx.arc(hx+22,hy-24,3,0,Math.PI*2);
+  ctx.fillStyle='#A07828';ctx.fill();
+  ctx.lineWidth=2;
+}
+
+function drawCollar(ctx){
+  let sc='#7A5A18';
+  ctx.lineWidth=2;ctx.lineJoin='round';ctx.lineCap='round';
+  let dY=BY+4;
+  let collarY=BY-2;
+  let collarOuterW=CWD/2+9;
+  let collarInnerW=CWD/2-1;
+
+  ctx.fillStyle=brassGrad(ctx,CX-collarOuterW,CX+collarOuterW);
+  ctx.strokeStyle=sc;
+  ctx.beginPath();
+  ctx.ellipse(CX,collarY+3,collarOuterW,5,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle=brassGrad(ctx,CX-collarOuterW,CX+collarOuterW);
+  ctx.beginPath();
+  ctx.ellipse(CX,collarY,collarOuterW,4,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.ellipse(CX,collarY,collarInnerW,2.5,0,0,Math.PI*2);
+  let innerG=ctx.createRadialGradient(CX,collarY,0,CX,collarY,collarInnerW);
+  innerG.addColorStop(0,'#1A0F06');
+  innerG.addColorStop(0.6,'#2E1C0E');
+  innerG.addColorStop(1,'#4A3214');
+  ctx.fillStyle=innerG;
+  ctx.fill();
+  ctx.strokeStyle=sc;
+  ctx.stroke();
+}
+
+function drawTaper(ctx,topY,h){
+  if(h<1)return;
+  let bW=CWD/2,tW=CWD/2-3,cupT=BY-16;
+  ctx.beginPath();ctx.moveTo(CX-tW,topY);ctx.lineTo(CX-bW,cupT);
+  ctx.bezierCurveTo(CX-bW,cupT+4,CX-bW-1,BY-4,CX-bW-2,BY);
+  ctx.lineTo(CX+bW+2,BY);
+  ctx.bezierCurveTo(CX+bW+1,BY-4,CX+bW,cupT+4,CX+bW,cupT);
+  ctx.lineTo(CX+tW,topY);ctx.closePath();
+  let g=ctx.createLinearGradient(CX-bW,0,CX+bW,0);
+  g.addColorStop(0,'#7A6A45');g.addColorStop(0.15,'#B8A878');g.addColorStop(0.3,'#DDD0A8');
+  g.addColorStop(0.45,'#F5ECD0');g.addColorStop(0.5,'#FFF8E7');g.addColorStop(0.55,'#F5ECD0');
+  g.addColorStop(0.7,'#D4C498');g.addColorStop(0.85,'#B8A878');g.addColorStop(1,'#7A6A45');
+  ctx.fillStyle=g;ctx.fill();
+  ctx.beginPath();ctx.ellipse(CX,topY,tW,3,0,0,Math.PI*2);
+  let eg=ctx.createRadialGradient(CX-2,topY,0,CX,topY,tW);
+  eg.addColorStop(0,'#FFF8E7');eg.addColorStop(0.5,'#EAD8B0');eg.addColorStop(1,'#C4AD82');
+  ctx.fillStyle=eg;ctx.fill();
+}
+
+function getWickTip(){
+  let tp=cTop();
+  let bn=(lit||extinguishing||emberGlow>0)?Math.sin(time*2)*0.4:0;
+  return {x:CX+bn*1.2,y:tp-WKH};
+}
+
+function drawWick(ctx){
+  if(aH<5)return;
+  ctx.strokeStyle='#2A1A0C';ctx.lineWidth=1.5;
+  let tp=cTop();
+  let bn=(lit||extinguishing||emberGlow>0)?Math.sin(time*2)*0.4:0;
+  ctx.beginPath();ctx.moveTo(CX,tp);ctx.quadraticCurveTo(CX+bn,tp-WKH*0.5,CX+bn*1.2,tp-WKH);ctx.stroke();
+
+  let wt=getWickTip();
+  if(lit){
+    ctx.beginPath();ctx.arc(wt.x,wt.y,1.5,0,Math.PI*2);
+    ctx.fillStyle='#FF8800';ctx.fill();
+  } else if(emberGlow>0){
+    let pulseIntensity=0.7+Math.sin(time*4)*0.15+Math.sin(time*7.3)*0.1;
+    let emberIntensity=emberGlow*pulseIntensity;
+
+    ctx.save();
+    let gRad=6;
+    let gGrad=ctx.createRadialGradient(wt.x,wt.y,0,wt.x,wt.y,gRad);
+    gGrad.addColorStop(0,`rgba(255,80,20,${0.5*emberIntensity})`);
+    gGrad.addColorStop(0.4,`rgba(255,50,10,${0.25*emberIntensity})`);
+    gGrad.addColorStop(1,'rgba(255,30,0,0)');
+    ctx.fillStyle=gGrad;
+    ctx.beginPath();ctx.arc(wt.x,wt.y,gRad,0,Math.PI*2);ctx.fill();
+
+    ctx.beginPath();ctx.arc(wt.x,wt.y,1.8,0,Math.PI*2);
+    let r=255;
+    let g=Math.floor(40+emberIntensity*40);
+    let b=Math.floor(10+emberIntensity*10);
+    ctx.fillStyle=`rgba(${r},${g},${b},${emberIntensity})`;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawFlame(ctx){
+  if(!lit||aH<3)return;
+  let tp=cTop(),bn=Math.sin(time*2)*0.8,wx=CX+bn*1.2,wy=tp-WKH;
+  let n1=Math.sin(time*3.17),n2=Math.sin(time*5.53+1)*0.7,n3=Math.sin(time*7.91+2)*0.4;
+  let n4=Math.sin(time*1.73)*0.5,n5=Math.sin(time*4.37+0.5)*0.6;
+  let sway=(n1+n2+n3)*1.8*flickDie,hv=(n4+n5)*3.5,wv=Math.sin(time*3.9)*1.2;
+  let fH=(40+hv)*flickDie,fW=(13+wv)*flickDie;
+  if(fH<2)return;
+  let fB=wy+2,tx=wx+sway,ty=fB-fH;
+  ctx.save();
+  ctx.globalAlpha=flickDie;
+  ctx.beginPath();ctx.moveTo(tx,ty);
+  ctx.bezierCurveTo(tx-fW*0.3+n2*2,ty+fH*0.22,wx-fW*1.1+n3,fB-fH*0.12+n1,wx,fB);
+  ctx.bezierCurveTo(wx+fW*1.1-n3,fB-fH*0.12-n2,tx+fW*0.3-n1*2,ty+fH*0.22,tx,ty);
+  ctx.closePath();
+  let fg=ctx.createLinearGradient(0,ty,0,fB);
+  fg.addColorStop(0,'rgba(255,255,250,0.97)');fg.addColorStop(0.08,'rgba(255,250,210,0.96)');
+  fg.addColorStop(0.25,'rgba(255,210,90,0.94)');fg.addColorStop(0.5,'rgba(255,160,40,0.9)');
+  fg.addColorStop(0.75,'rgba(230,100,15,0.65)');fg.addColorStop(1,'rgba(160,40,0,0.05)');
+  ctx.fillStyle=fg;ctx.fill();
+  let mH=fH*0.6,mW=fW*0.55,mT=fB-mH,mXp=wx+sway*0.7;
+  ctx.beginPath();ctx.moveTo(mXp,mT);
+  ctx.bezierCurveTo(mXp-mW*0.4,mT+mH*0.3,wx-mW,fB-mH*0.08,wx,fB);
+  ctx.bezierCurveTo(wx+mW,fB-mH*0.08,mXp+mW*0.4,mT+mH*0.3,mXp,mT);
+  ctx.closePath();
+  let mg=ctx.createLinearGradient(0,mT,0,fB);
+  mg.addColorStop(0,'rgba(255,255,255,0.85)');mg.addColorStop(0.3,'rgba(255,240,180,0.7)');mg.addColorStop(1,'rgba(255,160,40,0.1)');
+  ctx.fillStyle=mg;ctx.fill();
+  let iH=fH*0.32,iW=fW*0.25,iB=fB-2,iT=iB-iH,iX=wx+sway*0.4;
+  ctx.beginPath();ctx.moveTo(iX,iT);
+  ctx.bezierCurveTo(iX-iW,iT+iH*0.4,wx-iW*0.8,iB-2,wx,iB);
+  ctx.bezierCurveTo(wx+iW*0.8,iB-2,iX+iW,iT+iH*0.4,iX,iT);
+  ctx.closePath();
+  let ig=ctx.createLinearGradient(0,iT,0,iB);
+  ig.addColorStop(0,'rgba(255,255,255,0.92)');ig.addColorStop(0.3,'rgba(220,240,255,0.6)');ig.addColorStop(1,'rgba(100,150,255,0.05)');
+  ctx.fillStyle=ig;ctx.fill();
+  ctx.restore();
+}
+
+function spawnPuff(){
+  let wt=getWickTip();
+  for(let i=0;i<16;i++){
+    let a=Math.random()*Math.PI*2,sp=2+Math.random()*3;
+    puffs.push({x:wt.x+Math.random()*8-4,y:wt.y-Math.random()*12,vx:Math.cos(a)*sp*0.5,vy:-Math.abs(Math.sin(a))*sp-0.5,life:1,dc:0.015+Math.random()*0.01,r:3+Math.random()*5});
+  }
+  for(let i=0;i<3;i++){
+    smokes.push({
+      x:wt.x+Math.random()*3-1.5,y:wt.y-3,
+      vx:0,vy:-0.12-Math.random()*0.08,
+      life:1,dc:0.003+Math.random()*0.002,
+      length:10,maxLength:100+Math.random()*30,
+      thickness:2+Math.random()*1,
+      amp:4+Math.random()*4,
+      phase:Math.random()*Math.PI*2,
+      freq:0.8+Math.random()*0.4,
+      phaseVel:0.03+Math.random()*0.015
+    });
+  }
+}
+
+function updateParticles(){
+  for(let i=puffs.length-1;i>=0;i--){let p=puffs[i];p.x+=p.vx;p.y+=p.vy;p.vy-=0.02;p.vx*=0.97;p.vy*=0.97;p.life-=p.dc;p.r+=0.12;if(p.life<=0)puffs.splice(i,1)}
+  for(let i=smokes.length-1;i>=0;i--){
+    let p=smokes[i];
+    if(p.isSteady){
+      let wt=getWickTip();
+      p.x=wt.x;
+      p.y=wt.y-3;
+      p.phase+=p.phaseVel;
+      if(p.growth===undefined)p.growth=0;
+      p.growth=Math.min(1,p.growth+0.012);
+      p.life-=p.dc;
+    } else {
+      p.y+=p.vy;
+      p.vy-=0.0005;
+      p.phase+=p.phaseVel;
+      p.length+=0.4;
+      if(p.length>p.maxLength)p.length=p.maxLength;
+      p.life-=p.dc;
+    }
+    if(p.life<=0)smokes.splice(i,1);
+  }
+}
+
+function drawParticles(ctx){
+  for(let p of puffs){ctx.save();ctx.globalAlpha=p.life*0.5;ctx.fillStyle=`rgba(255,${Math.floor(180+p.life*75)},${Math.floor(60+p.life*80)},${p.life*0.4})`;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();ctx.restore()}
+
+  for(let p of smokes){
+    ctx.save();
+
+    if(p.isSteady){
+      let segments=30;
+      let baseMaxRise=130;
+      let growth=p.growth||0;
+      let maxRise=baseMaxRise*growth;
+      for(let s=0;s<segments;s++){
+        let t=s/segments;
+        let y=p.y-t*maxRise;
+        let waveAmp=p.amp*(0.3+t*1.6)*growth;
+        let wavePhase=p.phase+t*p.freq;
+        let x=p.x+Math.sin(wavePhase)*waveAmp+Math.cos(wavePhase*0.7)*waveAmp*0.3;
+        let segAlpha=p.life*0.45*(1-t*0.85)*growth;
+        let segThick=p.thickness*(1-t*0.3);
+        ctx.beginPath();
+        let nt=(s+1)/segments;
+        let ny=p.y-nt*maxRise;
+        let nPhase=p.phase+nt*p.freq;
+        let nAmp=p.amp*(0.3+nt*1.6)*growth;
+        let nx=p.x+Math.sin(nPhase)*nAmp+Math.cos(nPhase*0.7)*nAmp*0.3;
+        ctx.strokeStyle=`rgba(190,195,200,${segAlpha})`;
+        ctx.lineWidth=segThick;
+        ctx.lineCap='round';
+        ctx.moveTo(x,y);
+        ctx.lineTo(nx,ny);
+        ctx.stroke();
+      }
+    } else {
+      ctx.globalAlpha=p.life*0.5;
+      ctx.strokeStyle=`rgba(190,195,200,${p.life*0.4})`;
+      ctx.lineWidth=p.thickness;
+      ctx.lineCap='round';
+      ctx.lineJoin='round';
+      ctx.beginPath();
+      let segments=20;
+      for(let s=0;s<=segments;s++){
+        let t=s/segments;
+        let y=p.y-t*p.length;
+        let waveAmp=p.amp*(0.3+t*1.2);
+        let wavePhase=p.phase+t*p.freq;
+        let x=p.x+Math.sin(wavePhase)*waveAmp+Math.cos(wavePhase*0.7)*waveAmp*0.3;
+        if(s===0){ctx.moveTo(x,y);}
+        else{ctx.lineTo(x,y);}
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function getLightInfo(){
+  let fB=cTop()-WKH+2,hv=Math.sin(time*2.5)*3.5+Math.sin(time*4.3)*2;
+  let fH=(40+hv)*Math.max(flickDie,0.01);
+  let lY=fB-fH*0.3;
+  let r=(LIGHT_RADIUS+Math.sin(time*1.9)*10+Math.sin(time*3.1)*7)*Math.max(flickDie,0.01);
+  let sw=Math.sin(time*3.17)*1.8*flickDie;
+  return {cx:CX+sw*0.3,cy:lY,r:r};
+}
+
+function drawUnlit(ctx){
+  let imgData=ctx.createImageData(W,H);
+  let sceneData=SX.getImageData(0,0,W,H).data;
+  let out=imgData.data;
+
+  let mx=MOON_X,my=MOON_Y;
+  let mr2=MOON_RADIUS*MOON_RADIUS;
+  let ax=AMBIENT_X,ay=AMBIENT_Y;
+  let ar2=AMBIENT_RADIUS*AMBIENT_RADIUS;
+
+  for(let y=0;y<H;y++){
+    for(let x=0;x<W;x++){
+      let i=(y*W+x)*4;
+
+      let dxM=x-mx,dyM=y-my;
+      let dM2=dxM*dxM+dyM*dyM;
+      let moonStrength=0;
+      if(dM2<mr2){
+        let d=Math.sqrt(dM2);
+        moonStrength=Math.pow(1-d/MOON_RADIUS,1.5);
+      }
+
+      let dxA=x-ax,dyA=y-ay;
+      let dA2=dxA*dxA+dyA*dyA;
+      let ambientStrength=0;
+      if(dA2<ar2){
+        let d=Math.sqrt(dA2);
+        ambientStrength=Math.pow(1-d/AMBIENT_RADIUS,2)*0.3;
+      }
+
+      let ambient=0.05;
+      let total=(ambient+moonStrength*0.4+ambientStrength*0.5)*moonFade;
+      total=Math.min(1,total);
+
+      let rV=sceneData[i]*total;
+      let gV=sceneData[i+1]*total;
+      let bV=sceneData[i+2]*total;
+
+      let coolStrength=(moonStrength+ambientStrength*0.5)*moonFade;
+      let coolTint=coolStrength*0.2;
+      rV=rV*(1-coolTint*0.4);
+      gV=gV*(1-coolTint*0.15);
+      bV=Math.min(255,bV*(1-coolTint*0.05)+coolTint*50);
+
+      out[i]=rV;out[i+1]=gV;out[i+2]=bV;out[i+3]=255;
+    }
+  }
+  ctx.putImageData(imgData,0,0);
+}
+
+function drawLit(ctx,effectiveFlickDie,lightRadius){
+  let li=getLightInfo();
+  let imgData=ctx.createImageData(W,H);
+  let sceneData=SX.getImageData(0,0,W,H).data;
+  let out=imgData.data;
+
+  let cx=li.cx,cy=li.cy;
+  let r=lightRadius;
+  let r2=r*r;
+  let innerR=r*0.15;
+  let innerR2=innerR*innerR;
+
+  let mx=MOON_X,my=MOON_Y;
+  let mr2=MOON_RADIUS*MOON_RADIUS;
+  let ax=AMBIENT_X,ay=AMBIENT_Y;
+  let ar2=AMBIENT_RADIUS*AMBIENT_RADIUS;
+  let residualMoon=moonFade;
+
+  for(let y=0;y<H;y++){
+    for(let x=0;x<W;x++){
+      let i=(y*W+x)*4;
+
+      let dxF=x-cx,dyF=y-cy;
+      let dF2=dxF*dxF+dyF*dyF;
+
+      let flameT=0;
+      if(dF2<r2){
+        if(dF2<=innerR2){
+          flameT=1;
+        } else {
+          let d=Math.sqrt(dF2);
+          let normalized=(d-innerR)/(r-innerR);
+          flameT=Math.pow(1-normalized,FALLOFF_POWER);
+        }
+        flameT*=effectiveFlickDie;
+      }
+
+      let moonStrength=0;
+      if(residualMoon>0.01){
+        let dxM=x-mx,dyM=y-my;
+        let dM2=dxM*dxM+dyM*dyM;
+        if(dM2<mr2){
+          let d=Math.sqrt(dM2);
+          moonStrength=Math.pow(1-d/MOON_RADIUS,1.5)*residualMoon*0.35;
+        }
+        let dxA=x-ax,dyA=y-ay;
+        let dA2=dxA*dxA+dyA*dyA;
+        if(dA2<ar2){
+          let d=Math.sqrt(dA2);
+          moonStrength+=Math.pow(1-d/AMBIENT_RADIUS,2)*residualMoon*0.2;
+        }
+      }
+
+      let total=Math.max(flameT,moonStrength);
+
+      if(total<0.005){
+        out[i]=0;out[i+1]=0;out[i+2]=0;out[i+3]=255;
+      } else {
+        let rV=sceneData[i]*total;
+        let gV=sceneData[i+1]*total;
+        let bV=sceneData[i+2]*total;
+
+        if(flameT>moonStrength){
+          let warmTint=flameT*0.3;
+          if(lit){
+            rV=Math.min(255,rV+warmTint*35);
+            gV=Math.min(255,gV+warmTint*20);
+            bV=Math.min(255,bV+warmTint*5);
+          } else {
+            rV=Math.min(255,rV+warmTint*20);
+            gV=Math.min(255,gV+warmTint*6);
+            bV=Math.min(255,bV);
+          }
+        } else {
+          let coolTint=moonStrength*0.25;
+          rV=rV*(1-coolTint*0.4);
+          gV=gV*(1-coolTint*0.15);
+          bV=Math.min(255,bV+coolTint*45);
+        }
+
+        out[i]=rV;out[i+1]=gV;out[i+2]=bV;out[i+3]=255;
+      }
+    }
+  }
+  ctx.putImageData(imgData,0,0);
+}
+
+function draw(){
+  time+=0.025;
+
+  if(extinguishing){
+    extT+=0.025;
+    flickDie=Math.max(0,1-extT*4);
+    if(flickDie<=0&&lit){lit=false;emberGlow=1}
+    if(!lit&&emberGlow>0){
+      let timeSinceExt=extT-0.25;
+      if(timeSinceExt<SMOKE_DURATION){
+        let burstPhase=timeSinceExt<2;
+        let wt=getWickTip();
+
+        if(burstPhase){
+          if(Math.random()<0.45){
+            smokes.push({
+              x:wt.x+Math.random()*3-1.5,y:wt.y-3,
+              vx:0,vy:-0.12-Math.random()*0.08,
+              life:1,dc:0.006+Math.random()*0.003,
+              length:10,maxLength:90+Math.random()*30,
+              thickness:1.8+Math.random()*1,
+              amp:4+Math.random()*4,
+              phase:Math.random()*Math.PI*2,
+              freq:0.8+Math.random()*0.4,
+              phaseVel:0.03+Math.random()*0.015
+            });
+          }
+        } else {
+          let hasSingle=smokes.some(s=>s.isSteady);
+          if(!hasSingle){
+            smokes.push({
+              x:wt.x,y:wt.y-3,
+              vx:0,vy:-0.08,
+              life:1,dc:0.0008,
+              length:10,maxLength:140,
+              thickness:2.2,
+              amp:5,
+              phase:Math.random()*Math.PI*2,
+              freq:0.9,
+              phaseVel:0.025,
+              isSteady:true,
+              anchorX:wt.x
+            });
+          }
+        }
+        emberGlow=Math.max(0.15,1-timeSinceExt/SMOKE_DURATION*0.85);
+      } else {
+        emberGlow=Math.max(0,emberGlow-0.02);
+      }
+    }
+    if(extT>SMOKE_DURATION+3&&smokes.length===0&&puffs.length===0){
+      extinguishing=false;burning=false;mode='fill';cH=aH;emberGlow=0;moonFade=1;
+    }
+  }
+
+  if(lit){
+    moonFade=Math.max(0,moonFade-0.015);
+  } else if(!extinguishing){
+    moonFade=Math.min(1,moonFade+0.02);
+  }
+  if(dragging&&mode==='fill'){
+    moonFade=Math.max(0.4,moonFade-0.02);
+  }
+
+  updateParticles();
+
+  SX.clearRect(0,0,W,H);
+  drawSceneToBuffer(SX);
+
+  X.fillStyle='#000';X.fillRect(0,0,W,H);
+
+  if(!lit&&!extinguishing&&emberGlow===0){
+    drawUnlit(X);
+  } else {
+    let effectiveFlickDie=lit?flickDie:emberGlow*0.25;
+    let lightRadius=lit?getLightInfo().r:(40+emberGlow*25);
+
+    if(effectiveFlickDie<0.02&&moonFade<0.05){
+      X.fillRect(0,0,W,H);
+    } else {
+      drawLit(X,effectiveFlickDie,lightRadius);
+    }
+
+    drawFlame(X);
+    if(!lit&&emberGlow>0){
+      drawWick(X);
+    }
+  }
+
+  drawParticles(X);
+
+  // In-canvas timer removed — a brighter native React Native timer
+  // is rendered on top of the WebView by HomeScreen.tsx.
+}
+
+function update(){
+  if(burning&&!extinguishing){
+    let el=(Date.now()-bStart)/1000,p=Math.min(el/bDur,1);
+    // Shrink from startH down to STUB_H (not all the way to zero) so a
+    // small candle stub remains after the session ends.
+    const STUB_H=15;
+    cH=STUB_H+(startH-STUB_H)*(1-p);
+    // When time expires, trigger the natural extinguish animation
+    // (smoke rise, ember afterglow) rather than snapping the flame off.
+    if(p>=1){extinguishing=true;extT=0;spawnPuff();burning=false}
+  }
+  let d=cH-aH;aH+=d*0.1;if(Math.abs(d)<0.4)aH=cH;
+  draw();requestAnimationFrame(update);
+}
+
+function getY(e){let r=C.getBoundingClientRect(),t=e.touches?e.touches[0]:e;return((t.clientY-r.top)/r.height)*H}
+function nearFlame(e){
+  if(!lit||aH<5)return false;
+  let r=C.getBoundingClientRect(),t=e.touches?e.touches[0]:e;
+  let ex=((t.clientX-r.left)/r.width)*W,ey=((t.clientY-r.top)/r.height)*H;
+  let fy=cTop()-WKH-20;
+  return Math.sqrt((ex-CX)**2+(ey-fy)**2)<50;
+}
+
+C.addEventListener('mousedown',e=>{
+  e.preventDefault();
+  if(lit&&nearFlame(e)){extinguishing=true;extT=0;spawnPuff();return}
+  dragging=true;C.style.cursor='grabbing';
+  if(mode==='fill')cH=snapCandle(Math.max(0,Math.min(MH,BY-getY(e))));
+});
+window.addEventListener('mousemove',e=>{if(!dragging)return;e.preventDefault();if(mode==='fill')cH=snapCandle(Math.max(0,Math.min(MH,BY-getY(e))))});
+window.addEventListener('mouseup',()=>{
+  if(!dragging)return;dragging=false;C.style.cursor='grab';
+  if(mode==='fill'&&cH>0){lit=true;burning=true;bStart=Date.now();startH=cH;bDur=(cH/MH)*3600;mode='burning';flickDie=1;emberGlow=0}
+});
+C.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  if(lit&&nearFlame(e)){extinguishing=true;extT=0;spawnPuff();return}
+  dragging=true;if(mode==='fill')cH=snapCandle(Math.max(0,Math.min(MH,BY-getY(e))));
+},{passive:false});
+window.addEventListener('touchmove',e=>{if(!dragging)return;e.preventDefault();if(mode==='fill')cH=snapCandle(Math.max(0,Math.min(MH,BY-getY(e))))},{passive:false});
+window.addEventListener('touchend',()=>{
+  if(!dragging)return;dragging=false;
+  if(mode==='fill'&&cH>0){lit=true;burning=true;bStart=Date.now();startH=cH;bDur=(cH/MH)*3600;mode='burning';flickDie=1;emberGlow=0}
+});
+
+update();
+</script>
+</body></html>
