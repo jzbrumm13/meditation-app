@@ -9,6 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { CandleView, CandleState } from '../components/CandleView';
 import { MoonButton } from '../components/MoonButton';
 import { MenuSheet } from '../components/MenuSheet';
+import { ShootingStar } from '../components/ShootingStar';
 import { theme } from '../config/theme';
 import { Tier, tierForCandleHeight } from '../config/tiers';
 import { pickRandomForTier } from '../services/meditations';
@@ -204,6 +205,10 @@ export function HomeScreen() {
           <Text style={styles.dragNumberValue}>{dragTier.minutes}</Text>
         </Animated.View>
       )}
+
+      {/* Rare shooting star across the upper sky. Fires every 3–5 minutes,
+          including during meditation. Self-contained — no props needed. */}
+      <ShootingStar />
 
       {/* Discreet moon button — disappears the moment user engages with candle */}
       <MoonButton visible={moonVisible} onPress={() => setMenuOpen(true)} />

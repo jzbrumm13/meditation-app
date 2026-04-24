@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Animated, Easing, Modal, SafeAreaView,
+  Dimensions,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
@@ -22,6 +23,10 @@ import { theme } from '../config/theme';
 // four items, tapping one navigates to a sub-screen, and the top-left
 // button either goes back to main or closes the whole modal depending
 // on where you are.
+
+// Cached once — good enough for the anchor math; we're not supporting
+// mid-animation rotation here.
+const { width: WINDOW_W, height: WINDOW_H } = Dimensions.get('window');
 
 type SubScreen = 'main' | 'favorites' | 'practice' | 'support' | 'about';
 
@@ -177,44 +182,84 @@ const mainStyles = StyleSheet.create({
 
 export function MenuSheet({ visible, onDismiss }: Props) {
   const [screen, setScreen] = useState<SubScreen>('main');
-  const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.94)).current;
+
+  // Sky (backdrop) animation — starts tiny and zooms up past 1 then settles,
+  // giving a rocket-launch feeling of travelling up into space.
+  const skyOpacity = useRef(new Animated.Value(0)).current;
+  const skyScale = useRef(new Animated.Value(0.15)).current;
+
+  // Content (menu items / sub-screen) animation — held back until the sky
+  // has largely arrived, so the sky reads as the "destination" and the UI
+  // then condenses into view on top of it.
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const contentTranslate = useRef(new Animated.Value(24)).current;
 
   useEffect(() => {
     if (visible) {
       // Reset to main whenever the modal opens.
       setScreen('main');
+
+      // Reset to starting positions so re-opens don't snap in.
+      skyOpacity.setValue(0);
+      skyScale.setValue(0.15);
+      contentOpacity.setValue(0);
+      contentTranslate.setValue(24);
+
       Animated.parallel([
-        Animated.timing(opacity, {
+        // Sky zooms up from tiny → full, fast ease-out quart for the sense
+        // of rapid acceleration followed by a soft settle.
+        Animated.timing(skyScale, {
           toValue: 1,
-          duration: 550,
+          duration: 900,
+          easing: Easing.out(Easing.poly(4)),
+          useNativeDriver: true,
+        }),
+        Animated.timing(skyOpacity, {
+          toValue: 1,
+          duration: 450,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.timing(scale, {
+        // Menu items fade + lift in after the sky is mostly there.
+        Animated.timing(contentOpacity, {
           toValue: 1,
-          duration: 550,
+          duration: 500,
+          delay: 500,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(contentTranslate, {
+          toValue: 0,
+          duration: 600,
+          delay: 500,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
       ]).start();
     } else {
+      // Close: reverse of launch — content drops first, then sky recedes.
       Animated.parallel([
-        Animated.timing(opacity, {
+        Animated.timing(contentOpacity, {
+          toValue: 0,
+          duration: 180,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(skyOpacity, {
           toValue: 0,
           duration: 320,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.timing(scale, {
-          toValue: 0.94,
+        Animated.timing(skyScale, {
+          toValue: 0.5,
           duration: 320,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
       ]).start();
     }
-  }, [visible, opacity, scale]);
+  }, [visible, skyOpacity, skyScale, contentOpacity, contentTranslate]);
 
   const handleBack = () => {
     if (screen === 'main') {
@@ -232,11 +277,48 @@ export function MenuSheet({ visible, onDismiss }: Props) {
       animationType="none"
       onRequestClose={handleBack}
     >
-      <Animated.View style={[StyleSheet.absoluteFill, { opacity, transform: [{ scale }] }]}>
-        {/* Starfield + gradient + backdrop moon */}
+      {/* Sky layer: zooms up from a tiny point at the upper-right corner
+          (where the moon button lives) out to full screen, so it feels like
+          the camera is being launched toward the home moon icon. */}
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            opacity: skyOpacity,
+            transform: [
+              // Pin the upper-right corner: derive translate from the current
+              // scale such that the view's top-right stays at the window's
+              // top-right throughout the zoom.
+              {
+                translateX: skyScale.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [WINDOW_W / 2, 0],
+                }),
+              },
+              {
+                translateY: skyScale.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-WINDOW_H / 2, 0],
+                }),
+              },
+              { scale: skyScale },
+            ],
+          },
+        ]}
+      >
         <NightSkyBackground />
+      </Animated.View>
 
-        {/* Foreground content in safe area */}
+      {/* Foreground content — fades + lifts in after the sky has arrived */}
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            opacity: contentOpacity,
+            transform: [{ translateY: contentTranslate }],
+          },
+        ]}
+      >
         <SafeAreaView style={styles.safeArea}>
           {/* Top bar: close/back button */}
           <View style={styles.topBar}>
