@@ -12,6 +12,7 @@ import { MenuSheet } from '../components/MenuSheet';
 import { theme } from '../config/theme';
 import { Tier, tierForCandleHeight } from '../config/tiers';
 import { pickRandomForTier } from '../services/meditations';
+import { recordSession } from '../services/sessionStats';
 import * as player from '../services/audioPlayer';
 
 // ─── Candle canvas geometry ──────────────────────────────────────────
@@ -40,6 +41,10 @@ export function HomeScreen() {
 
   // Haptic ticking as the user crosses snap boundaries
   const lastSnapH = useRef<number>(0);
+
+  // Active session's tier minutes — set when the candle lights, consumed on
+  // natural burn-complete (NOT on early extinguish — only completed sits count).
+  const activeTierMinutesRef = useRef<number | null>(null);
 
   // Fade animations
   const numberOpacity = useRef(new Animated.Value(0)).current;
@@ -78,6 +83,9 @@ export function HomeScreen() {
     const tier = tierForCandleHeight(finalHeight);
     if (!tier) return;
 
+    // Remember this session's length so onBurnComplete can record it.
+    activeTierMinutesRef.current = tier.minutes;
+
     // Haptic tap when the flame catches.
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
@@ -95,11 +103,20 @@ export function HomeScreen() {
   const onExtinguish = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     player.stop();
+    // Early exit — session doesn't count toward streak/totals.
+    activeTierMinutesRef.current = null;
   }, []);
 
   const onBurnComplete = useCallback(() => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     player.stop();
+
+    // Record the completed session. Only natural burn-complete counts.
+    const minutes = activeTierMinutesRef.current;
+    if (minutes && minutes > 0) {
+      recordSession(minutes).catch(e => console.warn('recordSession failed:', e));
+    }
+    activeTierMinutesRef.current = null;
   }, []);
 
   // ─── Audio session setup (once) ────────────────────────────────────
