@@ -36,6 +36,12 @@ export interface CandleState {
 export interface CandleViewHandle {
   /** Force a state refresh immediately (useful after lifecycle events). */
   refresh(): void;
+  /**
+   * Programmatically light the candle at the height matching the given
+   * meditation length in minutes. Used by the Favorites flow: tapping a
+   * favorite skips the manual drag and lights the candle directly.
+   */
+  lightWith(minutes: number): void;
 }
 
 interface Props {
@@ -138,6 +144,36 @@ export const CandleView = forwardRef<CandleViewHandle, Props>((props, ref) => {
   useImperativeHandle(ref, () => ({
     refresh() {
       webRef.current?.injectJavaScript('true;');
+    },
+    lightWith(minutes: number) {
+      // Inject a snippet that mirrors the candle's normal release-handler
+      // path: set the height to the requested tier, then flip lit + burning
+      // so the flame ignites and the burn timer starts. The bridge will
+      // detect the lit transition on its next tick and emit a 'light'
+      // event back to RN — onLight then plays the queued meditation.
+      const script = `
+        (function() {
+          var min = ${Number(minutes) || 0};
+          if (!min || min <= 0) return;
+          var mh = window.MH || 250;
+          var h = (min / 60) * mh;
+          window.cH = h;
+          window.aH = h;
+          window.startH = h;
+          window.bDur = (h / mh) * 3600;
+          window.bStart = Date.now();
+          window.lit = true;
+          window.burning = true;
+          window.mode = 'burning';
+          window.flickDie = 1;
+          window.emberGlow = 0;
+          window.dragging = false;
+          window.extinguishing = false;
+          window.extT = 0;
+        })();
+        true;
+      `;
+      webRef.current?.injectJavaScript(script);
     },
   }), []);
 

@@ -50,3 +50,8 @@ yarn-error.*
 showcase.html
 nondual-10min-v1.mp3
 *.zip
+
+# Audio build artifacts — outputs are regenerable from clips + build scripts.
+# Source clips are kept in git (audio-build/clips/) so anyone can rebuild
+# the meditations end-to-end. Final mp3s live in Supabase, not the repo.
+audio-build/output/

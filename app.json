@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Meditation",
-    "slug": "meditation-app",
+    "name": "Glimmer",
+    "slug": "glimmer",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,15 +14,18 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.jbrumm.meditation",
+      "bundleIdentifier": "com.jbrumm.glimmer",
       "buildNumber": "1",
       "infoPlist": {
-        "UIBackgroundModes": ["audio"],
-        "UIStatusBarStyle": "UIStatusBarStyleLightContent"
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "UIStatusBarStyle": "UIStatusBarStyleLightContent",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.jbrumm.meditation",
+      "package": "com.jbrumm.glimmer",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -35,7 +38,13 @@
     },
     "plugins": [
       "expo-asset",
-      ["expo-av", { "microphonePermission": false }]
+      [
+        "expo-av",
+        {
+          "microphonePermission": false
+        }
+      ],
+      "react-native-iap"
     ]
   }
 }

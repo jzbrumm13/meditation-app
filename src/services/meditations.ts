@@ -102,3 +102,48 @@ export async function pickRandomForTier(tier: Tier): Promise<Meditation | null> 
   if (list.length === 0) return null;
   return list[Math.floor(Math.random() * list.length)];
 }
+
+/**
+ * Look up full meditation records for a list of ids. Used by the
+ * Favorites screen to render titles + durations from stored ids.
+ *
+ * Order of the returned list mirrors the input order; missing ids are
+ * silently skipped (they may have been removed from the catalogue).
+ */
+export async function getMeditationsByIds(ids: string[]): Promise<Meditation[]> {
+  if (ids.length === 0) return [];
+
+  if (!isSupabaseConfigured()) {
+    const byId = new Map(PLACEHOLDER_CATALOGUE.map(m => [m.id, m]));
+    return ids.map(id => byId.get(id)).filter((m): m is Meditation => !!m);
+  }
+
+  const sb = supabase();
+  const { data, error } = await sb
+    .from('meditations')
+    .select('id, title, description, teacher, length_minutes, tier_id, audio_path, audio_bytes')
+    .in('id', ids);
+
+  if (error) {
+    console.warn('Supabase fetch by ids failed:', error.message);
+    return [];
+  }
+
+  const byId = new Map(
+    (data ?? []).map(row => [
+      row.id as string,
+      {
+        id: row.id as string,
+        title: row.title as string,
+        description: row.description as string | undefined,
+        teacher: row.teacher as string | undefined,
+        lengthMinutes: row.length_minutes as number,
+        tierId: row.tier_id as Tier['id'],
+        audioPath: row.audio_path as string,
+        audioBytes: row.audio_bytes as number | undefined,
+        audioUrl: sb.storage.from('meditation-audio').getPublicUrl(row.audio_path as string).data.publicUrl,
+      } as Meditation,
+    ]),
+  );
+  return ids.map(id => byId.get(id)).filter((m): m is Meditation => !!m);
+}

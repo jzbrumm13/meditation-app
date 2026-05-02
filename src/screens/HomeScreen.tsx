@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, StyleSheet, Text, Animated, Easing,
-  LayoutChangeEvent,
+  LayoutChangeEvent, ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 
-import { CandleView, CandleState } from '../components/CandleView';
+import { CandleView, CandleState, CandleViewHandle } from '../components/CandleView';
 import { MoonButton } from '../components/MoonButton';
 import { MenuSheet } from '../components/MenuSheet';
 import { ShootingStar } from '../components/ShootingStar';
+import { FavoriteHeart } from '../components/FavoriteHeart';
 import { theme } from '../config/theme';
 import { Tier, tierForCandleHeight } from '../config/tiers';
-import { pickRandomForTier } from '../services/meditations';
+import { pickRandomForTier, Meditation } from '../services/meditations';
 import { recordSession } from '../services/sessionStats';
 import * as player from '../services/audioPlayer';
 
@@ -46,6 +47,31 @@ export function HomeScreen() {
   // Active session's tier minutes — set when the candle lights, consumed on
   // natural burn-complete (NOT on early extinguish — only completed sits count).
   const activeTierMinutesRef = useRef<number | null>(null);
+
+  // Imperative handle on the WebView so the Favorites flow can light the
+  // candle programmatically.
+  const candleRef = useRef<CandleViewHandle>(null);
+
+  // The most recently played meditation — exposed to the FavoriteHeart so
+  // the user can heart what they just listened to during the wind-down.
+  const [lastPlayed, setLastPlayed] = useState<Meditation | null>(null);
+
+  // True while the candle is in its post-session reset phase (smoking,
+  // ember-glow, fading back to "fill" mode). Drives the FavoriteHeart fade.
+  const [heartVisible, setHeartVisible] = useState(false);
+
+  // Pending meditation — set by the Favorites flow before lighting the
+  // candle programmatically. onLight consumes this in place of a random pick.
+  const pendingMeditationRef = useRef<Meditation | null>(null);
+
+  // True from the moment the flame catches until the audio file has finished
+  // loading and started playing. On a cold cache this is the network-fetch +
+  // decode window — usually 0.5–3 seconds. We surface a faint spinner so the
+  // user knows audio is on its way and didn't silently fail.
+  const [audioLoading, setAudioLoading] = useState(false);
+
+  // Fade for the loading spinner so it doesn't pop in/out abruptly.
+  const spinnerOpacity = useRef(new Animated.Value(0)).current;
 
   // Fade animations
   const numberOpacity = useRef(new Animated.Value(0)).current;
@@ -87,25 +113,54 @@ export function HomeScreen() {
     // Remember this session's length so onBurnComplete can record it.
     activeTierMinutesRef.current = tier.minutes;
 
+    // A new sit started — hide the previous session's heart immediately.
+    setHeartVisible(false);
+
     // Haptic tap when the flame catches.
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
-    // Auto-pick and play a random meditation matching the candle's length.
+    // If a pending favorite is queued, play that instead of a random pick.
+    const pending = pendingMeditationRef.current;
+    pendingMeditationRef.current = null;
+
     try {
-      const m = await pickRandomForTier(tier);
+      const m = pending ?? (await pickRandomForTier(tier));
       if (m) {
-        await player.play(m);
+        setLastPlayed(m);
+        // Show the spinner during the load → first-frame-of-playback window.
+        // play() resolves once the Sound has been created, decoded, and the
+        // first chunk is buffering — so awaiting it is a reasonable proxy
+        // for "audio is ready".
+        setAudioLoading(true);
+        try {
+          await player.play(m);
+        } finally {
+          setAudioLoading(false);
+        }
       }
     } catch (e) {
+      setAudioLoading(false);
       console.warn('Auto-play failed:', e);
     }
   }, []);
+
+  // The candle's full reset (smoke + ember fade-out → back to fill mode)
+  // takes ~13s. We want the heart to appear roughly halfway through so it
+  // doesn't crowd the immediate post-snuff moment, then linger a few
+  // seconds after the candle has fully reset before fading.
+  const HEART_FADE_IN_DELAY_MS = 6500;
+  const HEART_FADE_OUT_DELAY_MS = 14500;
 
   const onExtinguish = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     player.stop();
     // Early exit — session doesn't count toward streak/totals.
     activeTierMinutesRef.current = null;
+
+    // Show the heart partway through the wind-down so it appears as a
+    // gentle afterglow rather than a UI prompt right at the snuff.
+    setTimeout(() => setHeartVisible(true), HEART_FADE_IN_DELAY_MS);
+    setTimeout(() => setHeartVisible(false), HEART_FADE_OUT_DELAY_MS);
   }, []);
 
   const onBurnComplete = useCallback(() => {
@@ -118,6 +173,25 @@ export function HomeScreen() {
       recordSession(minutes).catch(e => console.warn('recordSession failed:', e));
     }
     activeTierMinutesRef.current = null;
+
+    // Show the heart partway through the wind-down (same as user-snuff path).
+    setTimeout(() => setHeartVisible(true), HEART_FADE_IN_DELAY_MS);
+    setTimeout(() => setHeartVisible(false), HEART_FADE_OUT_DELAY_MS);
+  }, []);
+
+  // ─── Favorites: play a hearted meditation from the menu ────────────
+
+  const handlePlayFavorite = useCallback((m: Meditation) => {
+    // Close the menu so the candle becomes visible again.
+    setMenuOpen(false);
+    // Queue the meditation for onLight to consume instead of picking random.
+    pendingMeditationRef.current = m;
+    // Tiny delay so the menu's exit animation can begin before the candle
+    // lights — without this the candle ignites behind a fading-out modal,
+    // which feels less continuous.
+    setTimeout(() => {
+      candleRef.current?.lightWith(m.lengthMinutes);
+    }, 280);
   }, []);
 
   // ─── Audio session setup (once) ────────────────────────────────────
@@ -126,6 +200,32 @@ export function HomeScreen() {
     player.configureAudioSession().catch(e => console.warn('Audio session setup failed:', e));
     return () => { player.stop(); };
   }, []);
+
+  // Fade the loading spinner in/out. Quick fade-in once the load is detectably
+  // taking >250ms so we don't flash on cached files; gentle fade-out the
+  // moment loading completes. Avoids any abrupt UI changes during the sit.
+  useEffect(() => {
+    if (audioLoading) {
+      // Small delay before showing — most cached loads complete in <250ms,
+      // so this avoids a flash on warm starts.
+      const id = setTimeout(() => {
+        Animated.timing(spinnerOpacity, {
+          toValue: 0.45,
+          duration: 350,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      }, 250);
+      return () => clearTimeout(id);
+    } else {
+      Animated.timing(spinnerOpacity, {
+        toValue: 0,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [audioLoading, spinnerOpacity]);
 
   // ─── Project canvas coords → screen coords ─────────────────────────
   // The candle's 500x700 canvas is scaled to fit the WebView with
@@ -173,6 +273,7 @@ export function HomeScreen() {
       {/* Candle fills the screen */}
       <View style={styles.candleContainer} onLayout={onWebViewLayout}>
         <CandleView
+          ref={candleRef}
           onStateChange={onCandleState}
           onLight={onLight}
           onExtinguish={onExtinguish}
@@ -210,11 +311,44 @@ export function HomeScreen() {
           including during meditation. Self-contained — no props needed. */}
       <ShootingStar />
 
+      {/* Faint heart that appears below the candle during the post-session
+          wind-down. Tapping it favorites the meditation that just played.
+          Positioned just under the candle holder, in the lower portion of
+          the screen so it's clearly disambiguated from the candle itself. */}
+      {scale > 0 && (
+        <View
+          style={[
+            styles.heartLayer,
+            {
+              top: canvasTop + 640 * scale,
+            },
+          ]}
+          pointerEvents="box-none"
+        >
+          <FavoriteHeart meditation={lastPlayed} visible={heartVisible} />
+        </View>
+      )}
+
+      {/* Faint loading spinner — appears for a beat after the flame catches
+          while the audio is being loaded from network/cache, then fades out
+          once playback starts. Positioned well below the candle so it sits
+          quietly out of the meditator's primary focus. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.spinnerLayer, { opacity: spinnerOpacity }]}
+      >
+        <ActivityIndicator size="small" color={theme.accent} />
+      </Animated.View>
+
       {/* Discreet moon button — disappears the moment user engages with candle */}
       <MoonButton visible={moonVisible} onPress={() => setMenuOpen(true)} />
 
       {/* Menu sheet (Favorites / Settings / Support) */}
-      <MenuSheet visible={menuOpen} onDismiss={() => setMenuOpen(false)} />
+      <MenuSheet
+        visible={menuOpen}
+        onDismiss={() => setMenuOpen(false)}
+        onPlayFavorite={handlePlayFavorite}
+      />
     </View>
   );
 }
@@ -222,6 +356,23 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   candleContainer: { flex: 1, backgroundColor: theme.bg },
+
+  heartLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+
+  // Audio loading spinner. Pinned to the lower portion of the screen,
+  // far enough below the candle that it doesn't pull the eye during a sit.
+  spinnerLayer: {
+    position: 'absolute',
+    bottom: 64,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
 
   dragNumber: {
     position: 'absolute',

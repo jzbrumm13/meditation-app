@@ -11,6 +11,7 @@ import { PracticeScreen } from './menu/PracticeScreen';
 import { SupportScreen } from './menu/SupportScreen';
 import { AboutScreen } from './menu/AboutScreen';
 import { theme } from '../config/theme';
+import { Meditation } from '../services/meditations';
 
 // ─── MenuSheet ───────────────────────────────────────────────────────
 //
@@ -33,6 +34,11 @@ type SubScreen = 'main' | 'favorites' | 'practice' | 'support' | 'about';
 interface Props {
   visible: boolean;
   onDismiss: () => void;
+  /**
+   * Called when the user taps a favorite to play it. The parent should
+   * dismiss the menu and light the candle with this meditation.
+   */
+  onPlayFavorite?: (meditation: Meditation) => void;
 }
 
 // ─── Icons (inline SVG — small enough not to warrant separate files) ─
@@ -180,7 +186,7 @@ const mainStyles = StyleSheet.create({
 
 // ─── The modal itself ────────────────────────────────────────────────
 
-export function MenuSheet({ visible, onDismiss }: Props) {
+export function MenuSheet({ visible, onDismiss, onPlayFavorite }: Props) {
   const [screen, setScreen] = useState<SubScreen>('main');
 
   // Sky (backdrop) animation — starts tiny and zooms up past 1 then settles,
@@ -338,7 +344,14 @@ export function MenuSheet({ visible, onDismiss }: Props) {
           {/* Sub-screen content */}
           <View style={styles.body}>
             {screen === 'main'      && <MainMenu onSelect={setScreen} />}
-            {screen === 'favorites' && <FavoritesScreen />}
+            {screen === 'favorites' && (
+              <FavoritesScreen
+                onPlay={(m) => {
+                  // Hand off to the parent: dismiss the menu and start playback.
+                  onPlayFavorite?.(m);
+                }}
+              />
+            )}
             {screen === 'practice'  && <PracticeScreen />}
             {screen === 'support'   && <SupportScreen />}
             {screen === 'about'     && <AboutScreen />}

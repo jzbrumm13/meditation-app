@@ -51,3 +51,9 @@ export async function toggleFavorite(id: string): Promise<boolean> {
   await save(s);
   return now;
 }
+
+/** Clear all favorites. Meant for the About → Reset Data flow. */
+export async function clearFavorites(): Promise<void> {
+  _cache = new Set();
+  await AsyncStorage.removeItem(KEY);
+}
