@@ -9,7 +9,7 @@ dist/
 web-build/
 expo-env.d.ts
 
-# Native
+# Native — signing keys and certificates. Never commit any of these.
 .kotlin/
 *.orig.*
 *.jks
@@ -17,6 +17,7 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+AuthKey_*.p8
 
 # Metro
 .metro-health-check*

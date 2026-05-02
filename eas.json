@@ -1,0 +1,35 @@
+{
+  "cli": {
+    "version": ">= 18.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "ios": {
+        "buildConfiguration": "Release"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6765947219",
+        "appleTeamId": "K7LW69VMG3",
+        "ascApiKeyPath": "/Users/jbrumm/Downloads/AuthKey_KHG6DR8U7B.p8",
+        "ascApiKeyId": "KHG6DR8U7B",
+        "ascApiKeyIssuerId": "e33fb86c-8294-40b0-a394-b625e86d6c37"
+      }
+    }
+  }
+}

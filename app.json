@@ -31,7 +31,10 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -45,6 +48,12 @@
         }
       ],
       "react-native-iap"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c2061981-9e70-4781-b3db-adce677f4172"
+      }
+    },
+    "owner": "jbsizzler"
   }
 }
