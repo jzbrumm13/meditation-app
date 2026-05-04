@@ -118,7 +118,7 @@ interface MenuItemSpec {
 const MENU_ITEMS: MenuItemSpec[] = [
   { key: 'favorites', label: 'Favorites',      sublabel: 'Meditations you\'ve hearted', Icon: HeartIcon },
   { key: 'practice',  label: 'Your Practice',  sublabel: 'Streak and total time',       Icon: FlameIcon },
-  { key: 'support',   label: 'Support',        sublabel: 'Leave a tip',                 Icon: CoffeeIcon },
+  { key: 'support',   label: 'Support',        sublabel: 'Help keep it running',        Icon: CoffeeIcon },
   { key: 'about',     label: 'About',          sublabel: 'Voice, credits, privacy',     Icon: InfoIcon },
 ];
 

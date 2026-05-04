@@ -58,6 +58,14 @@ export async function play(meditation: Meditation) {
   // Otherwise unload any previous sound and load the new one.
   await stop();
 
+  // Re-apply the audio session before EVERY play. iOS's AVAudioSession
+  // activates lazily, and on a cold start the very first
+  // createAsync({shouldPlay:true}) can load the sound but fail to actually
+  // route audio because the session isn't fully active yet. Re-applying
+  // the mode here forces the session to be active before we create a
+  // Sound — fixes the "first play is silent, second play works" bug.
+  await configureAudioSession();
+
   // Prefer a cached local copy if available (works offline + zero latency).
   const localUri = await getCachedUri(meditation.id);
   const sourceUri = localUri ?? meditation.audioUrl;
@@ -74,6 +82,19 @@ export async function play(meditation: Meditation) {
   );
   current = sound;
   activeMeditationId = meditation.id;
+
+  // Defensive: even after re-applying the audio session, the very first
+  // play after app launch occasionally loads silently on iOS. Verify the
+  // sound is actually playing and force a play() if not — a no-op when
+  // it already is, but rescues the silent-first-play case.
+  try {
+    const status = await sound.getStatusAsync();
+    if (status.isLoaded && !status.isPlaying) {
+      await sound.playAsync();
+    }
+  } catch {
+    // status check is best-effort; createAsync already gave us the sound
+  }
 }
 
 export async function pause() {

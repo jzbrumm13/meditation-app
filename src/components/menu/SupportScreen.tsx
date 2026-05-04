@@ -1,30 +1,69 @@
-import React from 'react';
-import { View, Text, StyleSheet, Pressable, Linking, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { theme } from '../../config/theme';
+import {
+  getSupportProduct,
+  contributeToRunningCosts,
+  isContributionSupported,
+  EXPO_GO_UNSUPPORTED,
+  SupportProduct,
+} from '../../services/tipJar';
 
 // ─── SupportScreen ───────────────────────────────────────────────────
 //
-// The donation entry point. For v1 this sends the user to an external
-// Buy-Me-a-Coffee page. When the app ships, this screen is the natural
-// place to integrate StoreKit / Google Play Billing in-app purchases
-// for one-time tips instead of an external link (App Store reviewers
-// prefer this approach for tipping/donation flows).
-
-// TODO: replace with Jason's actual Buy-Me-a-Coffee (or similar) URL
-// once he's set one up.
-const DONATION_URL = 'https://buymeacoffee.com/';
+// Single-tier StoreKit IAP for users who'd like to help cover Glimmer's
+// audio hosting and server costs. Strictly framed as operating costs,
+// NOT personal support — the wording and tone deliberately avoid the
+// "buy me a coffee" / Patreon vibe.
+//
+// Apple compliance (§3.2.1): for-profit devs MUST use IAP for any
+// real-money contribution. External payment links (buymeacoffee, Stripe,
+// Venmo, etc.) get the app rejected. This screen replaces an earlier
+// version that linked to buymeacoffee.com — that approach was wrong.
 
 export function SupportScreen() {
-  const onDonate = async () => {
-    try {
-      const supported = await Linking.canOpenURL(DONATION_URL);
-      if (supported) {
-        await Linking.openURL(DONATION_URL);
-      } else {
-        Alert.alert('Could not open link');
+  // Three meaningful states for the contribution row:
+  //   product === null + no error → loading
+  //   productError set            → either Expo Go or App Store reach failure
+  //   product !== null            → ready, show button + price
+  // Plus transient `purchasing` and `thanked` states.
+  const [product, setProduct] = useState<SupportProduct | null>(null);
+  const [productError, setProductError] = useState<string | null>(null);
+  const [purchasing, setPurchasing] = useState(false);
+  const [thanked, setThanked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isContributionSupported()) {
+      setProductError(EXPO_GO_UNSUPPORTED);
+      return;
+    }
+    (async () => {
+      try {
+        const p = await getSupportProduct();
+        if (!cancelled) setProduct(p);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'unknown';
+        if (!cancelled) setProductError(msg);
       }
-    } catch {
-      Alert.alert('Could not open link');
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleContribute = async () => {
+    if (!product || purchasing) return;
+    setPurchasing(true);
+    try {
+      const ok = await contributeToRunningCosts();
+      if (ok) {
+        setThanked(true);
+        setTimeout(() => setThanked(false), 6000);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert('Could not complete', msg);
+    } finally {
+      setPurchasing(false);
     }
   };
 
@@ -34,25 +73,59 @@ export function SupportScreen() {
 
       <View style={styles.body}>
         <Text style={styles.paragraph}>
-          This app is free, has no ads, and will never sell your data.
+          Glimmer is free. No ads, no accounts, no subscription, and nothing
+          about your practice ever leaves your device.
         </Text>
         <Text style={styles.paragraph}>
-          If the practice has been meaningful to you, a small contribution helps keep
-          it going — covering voice rendering, storage, and development time.
+          The audio files do live on a server, though, and that costs a small
+          amount each month to keep running. If the app's been useful and
+          you'd like to help cover those costs, a one-time contribution helps
+          keep the lights on.
         </Text>
-        <Text style={styles.paragraph}>
-          Any amount is appreciated. Nothing is expected.
+        <Text style={styles.paragraphFaint}>
+          Strictly optional. The app stays free and fully functional either way.
         </Text>
       </View>
 
-      <Pressable
-        onPress={onDonate}
-        style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-      >
-        <Text style={styles.buttonText}>Leave a tip</Text>
-      </Pressable>
-
-      <Text style={styles.footnote}>Opens in your browser</Text>
+      {/* Single contribution button. Renders one of: thank-you, ready, error, loading. */}
+      {thanked ? (
+        <View style={styles.buttonShell}>
+          <Text style={styles.thankYou}>Thank you.</Text>
+        </View>
+      ) : product ? (
+        <Pressable
+          onPress={handleContribute}
+          disabled={purchasing}
+          style={({ pressed }) => [
+            styles.button,
+            pressed && styles.buttonPressed,
+            purchasing && styles.buttonDisabled,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Contribute ${product.price}`}
+        >
+          <Text style={styles.buttonLabel}>Help keep Glimmer running</Text>
+          <Text style={styles.buttonPrice}>
+            {purchasing ? 'Loading…' : product.price}
+          </Text>
+        </Pressable>
+      ) : productError === EXPO_GO_UNSUPPORTED ? (
+        <View style={styles.buttonShell}>
+          <Text style={styles.statusText}>
+            Available in production builds only.
+          </Text>
+        </View>
+      ) : productError ? (
+        <View style={styles.buttonShell}>
+          <Text style={styles.statusText}>
+            Couldn't reach the App Store. Try again in a moment.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.buttonShell}>
+          <ActivityIndicator size="small" color={theme.textFaint} />
+        </View>
+      )}
     </View>
   );
 }
@@ -68,10 +141,10 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     letterSpacing: 2,
     color: theme.text,
-    marginBottom: 40,
+    marginBottom: 32,
   },
   body: {
-    marginBottom: 48,
+    marginBottom: 36,
   },
   paragraph: {
     fontSize: 15,
@@ -80,29 +153,71 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     letterSpacing: 0.2,
   },
+  // De-emphasised follow-on caveat — visually backs off the request.
+  paragraphFaint: {
+    fontSize: 13,
+    color: theme.textFaint,
+    lineHeight: 22,
+    letterSpacing: 0.2,
+  },
+  // The actual contribution button: pill-shaped, accent-tinted, with the
+  // localized price aligned to the right of the action label.
   button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     alignSelf: 'center',
-    paddingHorizontal: 44,
-    paddingVertical: 16,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.accentSoft,
     borderWidth: 1,
     borderColor: theme.accent,
+    minWidth: 240,
   },
   buttonPressed: {
     backgroundColor: theme.surfaceHi,
   },
-  buttonText: {
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  buttonLabel: {
+    color: theme.accent,
+    fontSize: 15,
+    fontWeight: '500',
+    letterSpacing: 0.8,
+    marginRight: 12,
+  },
+  buttonPrice: {
+    color: theme.accent,
+    fontSize: 15,
+    fontWeight: '400',
+    letterSpacing: 0.5,
+    fontVariant: ['tabular-nums'],
+    opacity: 0.85,
+  },
+  // Identical positioning to the button so the layout doesn't jump
+  // between loading / ready / thanked states.
+  buttonShell: {
+    alignSelf: 'center',
+    minWidth: 240,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+  },
+  thankYou: {
     color: theme.accent,
     fontSize: 16,
-    fontWeight: '500',
-    letterSpacing: 1.5,
+    fontWeight: '400',
+    letterSpacing: 1,
   },
-  footnote: {
-    marginTop: 16,
-    textAlign: 'center',
-    fontSize: 12,
+  statusText: {
     color: theme.textFaint,
-    letterSpacing: 0.5,
+    fontSize: 13,
+    letterSpacing: 0.3,
+    fontStyle: 'italic',
+    textAlign: 'center',
   },
 });

@@ -70,25 +70,32 @@ export async function getSupportProduct(): Promise<SupportProduct> {
     _initialized = true;
   }
 
-  // getProducts returns Product[] — for a single SKU we take the first.
-  const products = await _iap.getProducts({ skus: [SUPPORT_PRODUCT_ID] });
-  if (!products.length) {
+  // fetchProducts returns Product[] — for a single SKU we take the first.
+  // react-native-iap v15 uses fetchProducts (was getProducts in v12) and
+  // requires an explicit type discriminator since the same call can also
+  // fetch subscriptions.
+  const products = await _iap.fetchProducts({
+    skus: [SUPPORT_PRODUCT_ID],
+    type: 'in-app',
+  });
+  if (!products || !products.length) {
     throw new Error(`Product not found: ${SUPPORT_PRODUCT_ID}`);
   }
 
+  // Product fields in v15: id, displayName, description, displayPrice
+  // (was productId / title / localizedPrice in v12).
   const p = products[0] as {
-    productId: string;
-    title?: string;
-    description?: string;
-    localizedPrice?: string;
-    price?: string;
+    id: string;
+    displayName?: string | null;
+    description?: string | null;
+    displayPrice?: string | null;
   };
 
   _cached = {
-    productId: p.productId,
-    title: p.title ?? 'Keep Glimmer running',
+    productId: p.id,
+    title: p.displayName ?? 'Keep Glimmer running',
     description: p.description ?? 'Helps cover audio hosting and server costs.',
-    price: p.localizedPrice ?? p.price ?? '',
+    price: p.displayPrice ?? '',
   };
   return _cached;
 }
@@ -127,23 +134,31 @@ export async function contributeToRunningCosts(): Promise<boolean> {
       }
     });
 
-    // Listen for cancellation / failure. Apple's cancel error code is
-    // 'E_USER_CANCELLED' — we treat it as a benign "no" rather than an error.
+    // Listen for cancellation / failure. v15's ErrorCode enum exposes
+    // UserCancelled = 'user-cancelled' (was 'E_USER_CANCELLED' in v12).
+    // We treat user-cancel as a benign "no" rather than an error.
     const errorSub = _iap!.purchaseErrorListener((err) => {
       purchaseSub.remove();
       errorSub.remove();
-      if (err.code === 'E_USER_CANCELLED') {
+      if (err.code === 'user-cancelled') {
         resolve(false);
       } else {
         reject(new Error(err.message || 'Purchase failed'));
       }
     });
 
-    // Kick off the native purchase sheet. iOS only for v1.
+    // Kick off the native purchase sheet. v15 requires the per-platform
+    // request shape: { request: { apple: { sku, ... } }, type: 'in-app' }.
+    // We pass the iOS leaf only since this v1 build is iOS-only anyway.
     _iap!
       .requestPurchase({
-        sku: SUPPORT_PRODUCT_ID,
-        andDangerouslyFinishTransactionAutomaticallyIOS: false,
+        request: {
+          apple: {
+            sku: SUPPORT_PRODUCT_ID,
+            andDangerouslyFinishTransactionAutomatically: false,
+          },
+        },
+        type: 'in-app',
       })
       .catch((e: Error) => {
         purchaseSub.remove();
