@@ -15,6 +15,7 @@ import { theme } from '../config/theme';
 import { Tier, tierForCandleHeight } from '../config/tiers';
 import { pickRandomForTier, Meditation } from '../services/meditations';
 import { recordSession } from '../services/sessionStats';
+import { handlePostSessionEngagement } from '../services/engagement';
 import * as player from '../services/audioPlayer';
 
 // ─── Candle canvas geometry ──────────────────────────────────────────
@@ -170,7 +171,15 @@ export function HomeScreen() {
     // Record the completed session. Only natural burn-complete counts.
     const minutes = activeTierMinutesRef.current;
     if (minutes && minutes > 0) {
-      recordSession(minutes).catch(e => console.warn('recordSession failed:', e));
+      // Chain the engagement check off the session record so it sees
+      // the new totalSessions count. Both run async — fire-and-forget,
+      // failures only logged. Engagement decides whether to surface
+      // the notification pre-prompt (after #1) or the App Store review
+      // prompt (after #2). Both delay ~1.8s internally so they don't
+      // step on the burn-complete bell + heart fade.
+      recordSession(minutes)
+        .then((stats) => handlePostSessionEngagement(stats.totalSessions))
+        .catch((e) => console.warn('recordSession/engagement failed:', e));
     }
     activeTierMinutesRef.current = null;
 

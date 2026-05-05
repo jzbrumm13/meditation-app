@@ -1,18 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { HomeScreen } from './src/screens/HomeScreen';
 import { OnboardingTutorial, isOnboardingComplete } from './src/components/OnboardingTutorial';
 import { theme } from './src/config/theme';
 
-// TEMP — one-shot reset of the onboarding flag so we can re-test the
-// tutorial. Remove this block (and the import above) after confirming.
-AsyncStorage.removeItem('@onboarding_tutorial_complete_v1').catch(() => {});
-
 // On first launch we show a brief sequential tutorial (welcome → candle →
 // moon). The completion flag is persisted in AsyncStorage; returning users
-// go straight to the home screen.
+// go straight to the home screen and never see the tutorial again.
 
 type AppState = 'loading' | 'tutorial' | 'home';
 
