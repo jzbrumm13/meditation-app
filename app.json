@@ -47,8 +47,7 @@
           "microphonePermission": false
         }
       ],
-      "react-native-iap",
-      "expo-notifications"
+      "react-native-iap"
     ],
     "extra": {
       "eas": {
