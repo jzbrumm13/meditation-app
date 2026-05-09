@@ -74,11 +74,16 @@ export function AboutScreen() {
       </Text>
 
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Voice</Text>
+        <Text style={styles.sectionLabel}>Why this exists</Text>
         <Text style={styles.paragraph}>
-          Voice rendering by ElevenLabs Voice Design. The narration style is a slow,
-          unhurried delivery in the tradition of the great nature documentaries.
-          All scripts are original.
+          Meditation can be one of the most life-improving practices available to a
+          person — and one of the hardest to do well alone. A free, ad-free,
+          account-free app with good guidance is the most useful thing I could think
+          to put into the world right now.
+        </Text>
+        <Text style={styles.paragraph}>
+          If a few of these sits land for you, the project will have done what it
+          set out to do.
         </Text>
       </View>
 
