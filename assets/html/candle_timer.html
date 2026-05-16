@@ -532,7 +532,7 @@ function draw(){
             smokes.push({
               x:wt.x,y:wt.y-3,
               vx:0,vy:-0.08,
-              life:1,dc:0.0008,
+              life:1,dc:0.00125,
               length:10,maxLength:140,
               thickness:2.2,
               amp:5,
@@ -549,7 +549,11 @@ function draw(){
         emberGlow=Math.max(0,emberGlow-0.02);
       }
     }
-    if(extT>SMOKE_DURATION+3&&smokes.length===0&&puffs.length===0){
+    // Reset timing tuned to land just before the FavoriteHeart finishes
+    // its fade-out (heart fully gone at ~15.5s post-extinguish). Was +3
+    // (~9s) but the steady-smoke trail kept the reset hanging until ~22s,
+    // which felt like a long stare at empty smoke after the heart vanished.
+    if(extT>SMOKE_DURATION+12&&smokes.length===0&&puffs.length===0){
       extinguishing=false;burning=false;mode='fill';cH=aH;emberGlow=0;moonFade=1;
     }
   }
